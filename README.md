@@ -1,6 +1,6 @@
 # expr
 
-expr is a maths expression parser which generates an abstract syntax tree which can be symbolically differentiated and evaluated.
+expr is a maths expression parser for C++ 20 which generates an abstract syntax tree which can be symbolically differentiated and evaluated.
 
 To use, include expr.h. In one of your C++ files you must define `EXPR_IMPLEMENTATION` so that the implementation of the library is compiled.
 
