@@ -24,6 +24,7 @@ SOFTWARE.
 
 #pragma once
 
+#include <cmath>
 #include <regex>
 #include <string>
 #include <vector>
@@ -156,6 +157,12 @@ namespace expr {
     {
     public:
         FUNC_IMPL(abs, { return abs(x); });
+    };
+
+    class GammaFunction : public Function
+    {
+    public:
+        FUNC_IMPL(gamma, { return std::tgamma(x); })
     };
 
     class AstNode
@@ -305,6 +312,47 @@ namespace expr {
         std::shared_ptr<AstNode> m_Left, m_Right;
     };
 
+    class DerivativeNode : public AstNode
+    {
+    public:
+        DerivativeNode(const std::string& respectTo, const std::shared_ptr<AstNode>& input, int order = 1)
+            : m_RespectTo(respectTo), m_Input(input), m_Order(order)
+        {
+        }
+        ~DerivativeNode() = default;
+
+        AST_IMPL(
+            {
+                if (ErrorNode* error = sameType(m_Input, ErrorNode))
+                    return m_Input;
+
+                if (respectTo == m_RespectTo)
+                    return std::make_shared<DerivativeNode>(respectTo, m_Input, m_Order + 1);
+
+                return std::make_shared<DerivativeNode>(respectTo, std::make_shared<DerivativeNode>(m_RespectTo, m_Input, m_Order));
+            },
+            ;,
+            {
+                auto simplifiedInput = m_Input->Simplify();
+                
+                if (ErrorNode* error = sameType(simplifiedInput, ErrorNode))
+                    return simplifiedInput;
+
+                return std::make_shared<DerivativeNode>(m_RespectTo, simplifiedInput);
+            },
+            {
+                if (m_Order == 1)
+                    return "d/d" + m_RespectTo + "(" + m_Input->ToString() + ")";
+
+                return "d^" + std::to_string(m_Order) + "/d" + m_RespectTo + "^" + std::to_string(m_Order) + "(" + m_Input->ToString() + ")";
+            }
+        );
+    private:
+        std::string m_RespectTo;
+        std::shared_ptr<AstNode> m_Input;
+        int m_Order;
+    };
+
     class EqualsNode : public AstNode
     {
     public:
@@ -369,7 +417,7 @@ namespace expr {
                     return std::make_shared<DifferentialNode>(m_Variable, m_RespectTo, m_Order + 1);
                 else
                 {
-                    // d/dt (dy/dx) = d^2y/dx^2 * dx/dt
+                    // d/dt (dy/dx) = d^2y/dx^2 * dx/dt, assuming y, x and t are implicitly related
                     return std::make_shared<OperatorNode>(
                         "*", 
                         std::make_shared<DifferentialNode>(m_Variable, m_RespectTo, m_Order + 1), 
@@ -521,7 +569,7 @@ namespace expr {
 
 namespace expr {
 
-    #define implementation(className, diff, simpl) \
+#define implementation(className, diff, simpl) \
         std::shared_ptr<AstNode> className::Differentiate(const std::string& respectTo, const std::shared_ptr<AstNode>& argument) const diff \
         std::shared_ptr<AstNode> className::Simplify(const std::shared_ptr<AstNode>& argument) const simpl
 
@@ -544,11 +592,11 @@ namespace expr {
         }
     )
 
-    implementation(
-        CosineFunction,
-        {
-            return std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(-1), std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<FunctionNode>("sin", argument)));
-        },
+        implementation(
+            CosineFunction,
+            {
+                return std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(-1), std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<FunctionNode>("sin", argument)));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
 
@@ -560,13 +608,13 @@ namespace expr {
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        TangentFunction,
-        {
-            return std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("^", std::make_shared<FunctionNode>("sec", argument), std::make_shared<NumberNode>(2)));
-        },
+        implementation(
+            TangentFunction,
+            {
+                return std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("^", std::make_shared<FunctionNode>("sec", argument), std::make_shared<NumberNode>(2)));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
 
@@ -578,25 +626,25 @@ namespace expr {
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        CotangentFunction,
-        {
-            return std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(-1), std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("^", std::make_shared<FunctionNode>("csc", argument), std::make_shared<NumberNode>(2))));
-        },
+        implementation(
+            CotangentFunction,
+            {
+                return std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(-1), std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("^", std::make_shared<FunctionNode>("csc", argument), std::make_shared<NumberNode>(2))));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        SecantFunction,
-        {
-            return std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("*", std::make_shared<FunctionNode>("tan", argument), std::make_shared<FunctionNode>("sec", argument)));
-        },
+        implementation(
+            SecantFunction,
+            {
+                return std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("*", std::make_shared<FunctionNode>("tan", argument), std::make_shared<FunctionNode>("sec", argument)));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
 
@@ -608,25 +656,25 @@ namespace expr {
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        CosecantFunction,
-        {
-            return std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(-1), std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("*", std::make_shared<FunctionNode>("cot", argument), std::make_shared<FunctionNode>("csc", argument))));
-        },
+        implementation(
+            CosecantFunction,
+            {
+                return std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(-1), std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("*", std::make_shared<FunctionNode>("cot", argument), std::make_shared<FunctionNode>("csc", argument))));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        HyperbolicSineFunction,
-        {
-            return std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<FunctionNode>("cosh", argument));
-        },
+        implementation(
+            HyperbolicSineFunction,
+            {
+                return std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<FunctionNode>("cosh", argument));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
 
@@ -638,13 +686,13 @@ namespace expr {
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        HyperbolicCosineFunction,
-        {
-            return std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<FunctionNode>("sinh", argument));
-        },
+        implementation(
+            HyperbolicCosineFunction,
+            {
+                return std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<FunctionNode>("sinh", argument));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
 
@@ -656,13 +704,13 @@ namespace expr {
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        HyperbolicTangentFunction,
-        {
-            return std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("^", std::make_shared<FunctionNode>("sech", argument), std::make_shared<NumberNode>(2)));
-        },
+        implementation(
+            HyperbolicTangentFunction,
+            {
+                return std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("^", std::make_shared<FunctionNode>("sech", argument), std::make_shared<NumberNode>(2)));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
 
@@ -674,25 +722,25 @@ namespace expr {
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        HyperbolicCotangentFunction,
-        {
-            return std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(-1), std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("^", std::make_shared<FunctionNode>("csch", argument), std::make_shared<NumberNode>(2))));
-        },
+        implementation(
+            HyperbolicCotangentFunction,
+            {
+                return std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(-1), std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("^", std::make_shared<FunctionNode>("csch", argument), std::make_shared<NumberNode>(2))));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        HyperbolicSecantFunction,
-        {
-            return std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(-1), std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("*", std::make_shared<FunctionNode>("tanh", argument), std::make_shared<FunctionNode>("sech", argument))));
-        },
+        implementation(
+            HyperbolicSecantFunction,
+            {
+                return std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(-1), std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("*", std::make_shared<FunctionNode>("tanh", argument), std::make_shared<FunctionNode>("sech", argument))));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
 
@@ -704,25 +752,25 @@ namespace expr {
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        HyperbolicCosecantFunction,
-        {
-            return std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(-1), std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("*", std::make_shared<FunctionNode>("coth", argument), std::make_shared<FunctionNode>("csch", argument))));
-        },
+        implementation(
+            HyperbolicCosecantFunction,
+            {
+                return std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(-1), std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("*", std::make_shared<FunctionNode>("coth", argument), std::make_shared<FunctionNode>("csch", argument))));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        Base10LogarithmFunction,
-        {
-            return std::make_shared<OperatorNode>("/", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("*", std::make_shared<FunctionNode>("ln", std::make_shared<NumberNode>(10)), argument));
-        },
+        implementation(
+            Base10LogarithmFunction,
+            {
+                return std::make_shared<OperatorNode>("/", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("*", std::make_shared<FunctionNode>("ln", std::make_shared<NumberNode>(10)), argument));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
 
@@ -736,13 +784,13 @@ namespace expr {
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        NaturalLogarithmFunction,
-        {
-            return std::make_shared<OperatorNode>("/", argument->Differentiate(respectTo), argument);
-        },
+        implementation(
+            NaturalLogarithmFunction,
+            {
+                return std::make_shared<OperatorNode>("/", argument->Differentiate(respectTo), argument);
+            },
         {
             auto simplifiedArgument = argument->Simplify();
 
@@ -761,16 +809,16 @@ namespace expr {
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        ExponentialFunction,
-        {
-            return std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<FunctionNode>("exp", argument));
-        },
+        implementation(
+            ExponentialFunction,
+            {
+                return std::make_shared<OperatorNode>("*", argument->Differentiate(respectTo), std::make_shared<FunctionNode>("exp", argument));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
-            
+
             if (NumberNode* number = sameType(simplifiedArgument, NumberNode))
             {
                 if (number->GetValue() == 1)
@@ -781,16 +829,16 @@ namespace expr {
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        SquareRootFunction,
-        {
-            return std::make_shared<OperatorNode>("/", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(2), std::make_shared<FunctionNode>("sqrt", argument)));
-        },
+        implementation(
+            SquareRootFunction,
+            {
+                return std::make_shared<OperatorNode>("/", argument->Differentiate(respectTo), std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(2), std::make_shared<FunctionNode>("sqrt", argument)));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
-            
+
             if (NumberNode* number = sameType(simplifiedArgument, NumberNode))
             {
                 double result = sqrt(number->GetValue());
@@ -804,16 +852,16 @@ namespace expr {
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    implementation(
-        ModulusFunction,
-        {
-            return std::make_shared<OperatorNode>("/", std::make_shared<OperatorNode>("*", argument, argument->Differentiate(respectTo)), std::make_shared<FunctionNode>("abs", argument));
-        },
+        implementation(
+            ModulusFunction,
+            {
+                return std::make_shared<OperatorNode>("/", std::make_shared<OperatorNode>("*", argument, argument->Differentiate(respectTo)), std::make_shared<FunctionNode>("abs", argument));
+            },
         {
             auto simplifiedArgument = argument->Simplify();
-            
+
             if (NumberNode* number = sameType(simplifiedArgument, NumberNode))
             {
                 if (number->GetValue() < 0)
@@ -824,13 +872,33 @@ namespace expr {
 
             return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
         }
-    )
+        )
 
-    std::shared_ptr<AstNode> VariableNode::Differentiate(const std::string& respectTo) const
+        implementation(
+            GammaFunction,
+            {
+                return std::make_shared<DerivativeNode>(respectTo, std::make_shared<FunctionNode>("gamma", argument));
+            },
+        {
+            auto simplifiedArgument = argument->Simplify();
+
+            if (NumberNode* number = sameType(simplifiedArgument, NumberNode))
+            {
+                if (number->GetValue() == 0)
+                    return std::make_shared<NumberNode>(1);
+                if (number->GetValue() == 1)
+                    return std::make_shared<NumberNode>(1);
+            }
+
+            return std::make_shared<FunctionNode>(GetExpressionID(), simplifiedArgument);
+        }
+        )
+
+        std::shared_ptr<AstNode> VariableNode::Differentiate(const std::string& respectTo) const
     {
         if (m_Name == respectTo)
             return std::make_shared<NumberNode>(1);
-        
+
         return std::make_shared<DifferentialNode>(m_Name, respectTo, 1);
     }
 
@@ -918,7 +986,7 @@ namespace expr {
 
                 return std::make_shared<OperatorNode>("*", std::make_shared<FunctionNode>("ln", std::make_shared<NumberNode>(numberNode->GetValue())),
                     std::make_shared<OperatorNode>("*", std::make_shared<OperatorNode>("^", m_Left, m_Right),
-                    m_Right->Differentiate(respectTo)));
+                        m_Right->Differentiate(respectTo)));
             }
             if (ConstantNode* constant = sameType(m_Left, ConstantNode))
             {
@@ -926,7 +994,7 @@ namespace expr {
 
                 return std::make_shared<OperatorNode>("*", std::make_shared<FunctionNode>("ln", std::make_shared<ConstantNode>(constant->GetName())),
                     std::make_shared<OperatorNode>("*", std::make_shared<OperatorNode>("^", m_Left, m_Right),
-                    m_Right->Differentiate(respectTo)));
+                        m_Right->Differentiate(respectTo)));
             }
 
             // cover all cases
@@ -937,7 +1005,7 @@ namespace expr {
 
             // f' / f
             auto baseFraction = std::make_shared<OperatorNode>("/", baseDerivative, m_Left);
-            
+
             // ln(f)
             auto lnBase = std::make_shared<FunctionNode>("ln", m_Left);
 
@@ -969,7 +1037,7 @@ namespace expr {
             {
                 if (leftNum->GetValue() == 0)
                     return simplifiedRight;
-                
+
                 if (NumberNode* rightNum = sameType(simplifiedRight, NumberNode))
                     return std::make_shared<NumberNode>(leftNum->GetValue() + rightNum->GetValue());
             }
@@ -985,7 +1053,7 @@ namespace expr {
             {
                 if (leftNum->GetValue() == 0)
                     return std::make_shared<OperatorNode>("*", std::make_shared<NumberNode>(-1), simplifiedRight);
-                
+
                 if (NumberNode* rightNum = sameType(simplifiedRight, NumberNode))
                     return std::make_shared<NumberNode>(leftNum->GetValue() - rightNum->GetValue());
             }
@@ -1054,6 +1122,28 @@ namespace expr {
         return std::make_shared<OperatorNode>(m_Operator, simplifiedLeft, simplifiedRight);
     }
 
+    double DerivativeNode::Evaluate(const std::unordered_map<std::string, double>& variableValues) const
+    {
+        if (ErrorNode* error = sameType(m_Input, ErrorNode))
+            return std::numeric_limits<double>::signaling_NaN();
+
+        constexpr double h = 1e-6;
+
+        auto it = variableValues.find(m_RespectTo);
+        if (it == variableValues.end())
+            return std::numeric_limits<double>::signaling_NaN();
+
+        double fx = m_Input->Evaluate(variableValues);
+
+        std::unordered_map<std::string, double> variableValuesH = variableValues;
+        variableValuesH[m_RespectTo] += h;
+
+        double fxh = m_Input->Evaluate(variableValuesH);
+
+        // (f(x + h) - f(x)) / h
+        return (fxh - fx) / h;
+    }
+
     FunctionNode::FunctionNode(const std::string& funcID, const std::shared_ptr<AstNode>& argument)
         : m_Function(nullptr), m_Argument(argument)
     {
@@ -1088,6 +1178,7 @@ namespace expr {
         AddFunction<NaturalLogarithmFunction>("ln");
         AddFunction<SquareRootFunction>("sqrt");
         AddFunction<ModulusFunction>("abs");
+        AddFunction<GammaFunction>("gamma");
 
         AddConstant("e", std::numbers::e);
         AddConstant("pi", std::numbers::pi);
@@ -1112,21 +1203,21 @@ namespace expr {
 
         if (it != s_Functions.end())
             return it->second;
-        
+
         return nullptr;
     }
 
-    double Configuration::GetConstantValue(const std::string &name)
+    double Configuration::GetConstantValue(const std::string& name)
     {
         auto it = s_Constants.find(name);
 
         if (it != s_Constants.end())
             return it->second;
-        
+
         return std::numeric_limits<double>::signaling_NaN();
     }
 
-    void Configuration::AddConstant(const std::string &name, double value)
+    void Configuration::AddConstant(const std::string& name, double value)
     {
         s_Constants[name] = value;
     }
@@ -1227,11 +1318,11 @@ namespace expr {
         return constantString;
     }
 
-    bool Tokenizer::IsNegativeSign(int index, const std::vector<Token> &tokens, bool insideModulus)
+    bool Tokenizer::IsNegativeSign(int index, const std::vector<Token>& tokens, bool insideModulus)
     {
         if (index == 0)
             return true;
-        
+
         const Token& previousToken = tokens[tokens.size() - 1];
         return previousToken.Type == TokenType::Operator
             || (previousToken.Type == TokenType::Parenthesis && previousToken.Value == "(")
@@ -1266,7 +1357,7 @@ namespace expr {
 
             if (token->Value != "=")
                 break;
-            
+
             Consume();
             auto right = ParseAdditionSubtraction();
             if (ErrorNode* error = sameType(right, ErrorNode))
@@ -1289,10 +1380,10 @@ namespace expr {
             const Token* token = Peek();
             if (!token)
                 break;
-            
+
             if (token->Value != "+" && token->Value != "-")
                 break;
-            
+
             Consume();
             auto right = ParseMultiplicationDivision();
             if (ErrorNode* error = sameType(right, ErrorNode))
@@ -1315,10 +1406,10 @@ namespace expr {
             const Token* token = Peek();
             if (!token)
                 break;
-            
+
             if (token->Value != "*" && token->Value != "/")
                 break;
-            
+
             Consume();
             auto right = ParseExponentiation();
             if (ErrorNode* error = sameType(right, ErrorNode))
@@ -1341,10 +1432,10 @@ namespace expr {
             const Token* token = Peek();
             if (!token)
                 break;
-            
+
             if (token->Value != "^")
                 break;
-            
+
             Consume();
             auto right = ParsePrimary();
             if (ErrorNode* error = sameType(right, ErrorNode))
@@ -1362,7 +1453,7 @@ namespace expr {
 
         if (!token)
             return std::make_shared<ErrorNode>("Unexpected end of tokens");
-        
+
         if (token->Type == TokenType::Number)
         {
             Consume();
@@ -1388,7 +1479,7 @@ namespace expr {
                 return std::make_shared<ErrorNode>("expected '(' after function");
             if (Peek()->Value != "(")
                 return std::make_shared<ErrorNode>("expected '(' after function");
-            
+
             Consume();
             auto argument = ParseExpression();
 
@@ -1396,7 +1487,7 @@ namespace expr {
                 return std::make_shared<ErrorNode>("expected ')' after function argument");
             if (Peek()->Value != ")")
                 return std::make_shared<ErrorNode>("expected ')' after function argument");
-            
+
             Consume();
 
             return std::make_shared<FunctionNode>(token->Value, argument);
@@ -1411,7 +1502,7 @@ namespace expr {
                 return std::make_shared<ErrorNode>("expected '|' to close modulus expression");
             if (Peek()->Value != "|")
                 return std::make_shared<ErrorNode>("expected '|' to close modulus expression");
-            
+
             Consume();
 
             return std::make_shared<FunctionNode>("abs", argument);
@@ -1434,6 +1525,12 @@ namespace expr {
         return std::make_shared<ErrorNode>("unexpected token " + token->Value + " (type = " + std::to_string((uint32_t)token->Type) + ")");
     }
 
+#undef implementation
+
 }
 
-#endif
+#endif // EXPR_IMPLEMENTATION
+
+#undef FUNC_IMPL
+#undef sameType
+#undef AST_IMPL
