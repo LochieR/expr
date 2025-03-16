@@ -28,6 +28,7 @@ SOFTWARE.
 #include <string>
 #include <vector>
 #include <memory>
+#include <sstream>
 #include <numbers>
 #include <type_traits>
 #include <unordered_map>
@@ -209,7 +210,12 @@ namespace expr {
             { return std::make_shared<NumberNode>(0); },
             { return m_Value; },
             { return std::make_shared<NumberNode>(m_Value); },
-            { return std::to_string(m_Value); }
+            {
+                std::ostringstream oss;
+                oss.precision(15);
+                oss << m_Value;
+                return oss.str();
+            }
         );
     private:
         double m_Value;
@@ -291,14 +297,7 @@ namespace expr {
                     return std::numeric_limits<double>::signaling_NaN();
             },
             ;,
-            {
-                if (ErrorNode* error = sameType(m_Left, ErrorNode))
-                    return error->GetMessage();
-                if (ErrorNode* error = sameType(m_Right, ErrorNode))
-                    return error->GetMessage();
-
-                return "(" + m_Left->ToString() + " " + m_Operator + " " + m_Right->ToString() + ")";
-            }
+            ;
         );
     private:
         std::string m_Operator;
@@ -517,7 +516,7 @@ namespace expr {
 
 }
 
-#ifdef EXPR_IMPLEMENTATION
+#ifndef EXPR_IMPLEMENTATION
 
 namespace expr {
 
@@ -1011,6 +1010,277 @@ namespace expr {
                 if (rightNum->GetValue() == 0)
                     return simplifiedRight;
             }
+
+            if (ConstantNode* lhs = sameType(simplifiedLeft, ConstantNode))
+            {
+                if (ConstantNode* rhs = sameType(simplifiedRight, ConstantNode))
+                {
+                    if (lhs->GetName() == rhs->GetName())
+                        return std::make_shared<OperatorNode>("^", simplifiedLeft, std::make_shared<NumberNode>(2.0));
+                }
+            }
+
+            if (VariableNode* lhs = sameType(simplifiedLeft, VariableNode))
+            {
+                if (VariableNode* rhs = sameType(simplifiedRight, VariableNode))
+                {
+                    if (lhs->GetName() == rhs->GetName())
+                        return std::make_shared<OperatorNode>("^", simplifiedLeft, std::make_shared<NumberNode>(2.0));
+                }
+            }
+
+            if (OperatorNode* rightOp = sameType(simplifiedRight, OperatorNode))
+            {
+                if (rightOp->GetOperator() == "+" || rightOp->GetOperator() == "-")
+                {
+                    if (OperatorNode* leftOp = sameType(simplifiedLeft, OperatorNode))
+                    {
+                        if (leftOp->GetOperator() == "+" || leftOp->GetOperator() == "-")
+                        {
+                            // (a + b)(c + d)
+                            // = ac + ad + bc + bd
+                            // (a + b)(c - d)
+                            // = ac - ad + bc - bd
+                            // (a - b)(c + d)
+                            // = ac - bc + ad - bd
+                            // (a - b)(c - d)
+                            // = ac - ad + bd - bc
+
+                            const auto& leftOperator = leftOp->GetOperator();
+                            const auto& rightOperator = rightOp->GetOperator();
+
+                            std::string first, second, third;
+
+                            if (leftOperator == "+" && rightOperator == "+")
+                            {
+                                first = second = third = "+";
+
+                                return std::make_shared<OperatorNode>(second,
+                                    std::make_shared<OperatorNode>(first,
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Left,
+                                            rightOp->m_Left
+                                        ),
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Left,
+                                            rightOp->m_Right
+                                        )
+                                    ),
+                                    std::make_shared<OperatorNode>(third,
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Right,
+                                            rightOp->m_Left
+                                        ),
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Right,
+                                            rightOp->m_Right
+                                        )
+                                    )
+                                );
+                            }
+                            else if (leftOperator == "+" && rightOperator == "-")
+                            {
+                                first = third = "-";
+                                second = "+";
+
+                                return std::make_shared<OperatorNode>(second,
+                                    std::make_shared<OperatorNode>(first,
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Left,
+                                            rightOp->m_Left
+                                        ),
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Left,
+                                            rightOp->m_Right
+                                        )
+                                    ),
+                                    std::make_shared<OperatorNode>(third,
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Right,
+                                            rightOp->m_Left
+                                        ),
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Right,
+                                            rightOp->m_Right
+                                        )
+                                    )
+                                );
+                            }
+                            else if (leftOperator == "-" && rightOperator == "+")
+                            {
+                                first = third = "-";
+                                second = "+";
+
+                                return std::make_shared<OperatorNode>(second,
+                                    std::make_shared<OperatorNode>(first,
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Left,
+                                            rightOp->m_Left
+                                        ),
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Right,
+                                            rightOp->m_Left
+                                        )
+                                    ),
+                                    std::make_shared<OperatorNode>(third,
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Left,
+                                            rightOp->m_Right
+                                        ),
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Right,
+                                            rightOp->m_Right
+                                        )
+                                    )
+                                );
+                            }
+                            else if (leftOperator == "-" && rightOperator == "-")
+                            {
+                                first = third = "-";
+                                second = "+";
+
+                                return std::make_shared<OperatorNode>(second,
+                                    std::make_shared<OperatorNode>(first,
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Left,
+                                            rightOp->m_Left
+                                        ),
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Left,
+                                            rightOp->m_Right
+                                        )
+                                    ),
+                                    std::make_shared<OperatorNode>(third,
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Right,
+                                            rightOp->m_Right
+                                        ),
+                                        std::make_shared<OperatorNode>("*",
+                                            leftOp->m_Right,
+                                            rightOp->m_Left
+                                        )
+                                    )
+                                );
+                            }
+                        }
+                    }
+                    if (NumberNode* leftNum = sameType(simplifiedLeft, NumberNode))
+                    {
+                        // a(b + c)
+                        // = ab + ac
+                        // a(b - c)
+                        // = ab - ac
+
+                        return std::make_shared<OperatorNode>(rightOp->GetOperator(),
+                            std::make_shared<OperatorNode>("*",
+                                simplifiedLeft,
+                                rightOp->m_Left
+                            ),
+                            std::make_shared<OperatorNode>("*",
+                                simplifiedLeft,
+                                rightOp->m_Right
+                            )
+                        );
+                    }
+                    if (ConstantNode* leftNum = sameType(simplifiedLeft, ConstantNode))
+                    {
+                        // a(b + c)
+                        // = ab + ac
+                        // a(b - c)
+                        // = ab - ac
+
+                        return std::make_shared<OperatorNode>(rightOp->GetOperator(),
+                            std::make_shared<OperatorNode>("*",
+                                simplifiedLeft,
+                                rightOp->m_Left
+                            ),
+                            std::make_shared<OperatorNode>("*",
+                                simplifiedLeft,
+                                rightOp->m_Right
+                            )
+                        );
+                    }
+                    if (FunctionNode* leftFunc = sameType(simplifiedLeft, FunctionNode))
+                    {
+                        // f(x)(b + c)
+                        // = f(x)b + f(x)c
+                        // f(x)(b - c)
+                        // = f(x)b - f(x)c
+
+                        return std::make_shared<OperatorNode>(rightOp->GetOperator(),
+                            std::make_shared<OperatorNode>("*",
+                                simplifiedLeft,
+                                rightOp->m_Left
+                            ),
+                            std::make_shared<OperatorNode>("*",
+                                simplifiedLeft,
+                                rightOp->m_Right
+                            )
+                        );
+                    }
+                }
+            }
+
+            if (OperatorNode* leftOp = sameType(simplifiedLeft, OperatorNode))
+            {
+                if (leftOp->GetOperator() == "+" || leftOp->GetOperator() == "-")
+                {
+                    if (NumberNode* rightNum = sameType(simplifiedRight, NumberNode))
+                    {
+                        // (b + c)a
+                        // = ab + ac
+                        // (b - c)a
+                        // = ab - ac
+
+                        return std::make_shared<OperatorNode>(leftOp->GetOperator(),
+                            std::make_shared<OperatorNode>("*",
+                                simplifiedRight,
+                                leftOp->m_Left
+                            ),
+                            std::make_shared<OperatorNode>("*",
+                                simplifiedRight,
+                                leftOp->m_Right
+                            )
+                        );
+                    }
+                    if (ConstantNode* rightNum = sameType(simplifiedRight, ConstantNode))
+                    {
+                        // (b + c)a
+                        // = ab + ac
+                        // (b - c)a
+                        // = ab - ac
+
+                        return std::make_shared<OperatorNode>(leftOp->GetOperator(),
+                            std::make_shared<OperatorNode>("*",
+                                simplifiedRight,
+                                leftOp->m_Left
+                            ),
+                            std::make_shared<OperatorNode>("*",
+                                simplifiedRight,
+                                leftOp->m_Right
+                            )
+                        );
+                    }
+                    if (FunctionNode* rightFunc = sameType(simplifiedRight, FunctionNode))
+                    {
+                        // (b + c)f(x)
+                        // = f(x)b + f(x)c
+                        // (b - c)f(x)
+                        // = f(x)b - f(x)c
+
+                        return std::make_shared<OperatorNode>(leftOp->GetOperator(),
+                            std::make_shared<OperatorNode>("*",
+                                simplifiedRight,
+                                leftOp->m_Left
+                            ),
+                            std::make_shared<OperatorNode>("*",
+                                simplifiedRight,
+                                leftOp->m_Right
+                            )
+                        );
+                    }
+                }
+            }
         }
         else if (m_Operator == "/")
         {
@@ -1052,6 +1322,49 @@ namespace expr {
         }
 
         return std::make_shared<OperatorNode>(m_Operator, simplifiedLeft, simplifiedRight);
+    }
+
+    std::string OperatorNode::ToString() const
+    {
+        if (ErrorNode* error = sameType(m_Left, ErrorNode))
+            return error->GetMessage();
+        if (ErrorNode* error = sameType(m_Right, ErrorNode))
+            return error->GetMessage();
+
+        if (m_Operator == "*")
+        {
+            if (OperatorNode* lhs = sameType(m_Left, OperatorNode))
+            {
+                if (OperatorNode* rhs = sameType(m_Right, OperatorNode))
+                {
+                    return "(" + lhs->ToString() + ")(" + rhs->ToString() + ")";
+                }
+
+                // example: (x + y) * z = z(x + y)
+                return m_Right->ToString() + "(" + m_Left->ToString() + ")";
+            }
+            if (OperatorNode* rhs = sameType(m_Right, OperatorNode))
+            {
+                return m_Left->ToString() + "(" + m_Right->ToString() + ")";
+            }
+
+            // x * y -> xy
+            return m_Left->ToString() + m_Right->ToString();
+        }
+        else if (m_Operator == "/")
+        {
+            return "(" + m_Left->ToString() + " " + m_Operator + " " + m_Right->ToString() + ")";
+        }
+        else if (m_Operator == "+" || m_Operator == "-")
+        {
+            return m_Left->ToString() + " " + m_Operator + " " + m_Right->ToString();
+        }
+        else if (m_Operator == "^")
+        {
+            return m_Left->ToString() + m_Operator + m_Right->ToString();
+        }
+
+        return "(" + m_Left->ToString() + " " + m_Operator + " " + m_Right->ToString() + ")";
     }
 
     FunctionNode::FunctionNode(const std::string& funcID, const std::shared_ptr<AstNode>& argument)
@@ -1249,7 +1562,7 @@ namespace expr {
 
     std::shared_ptr<AstNode> Parser::ParseExpression()
     {
-        return ParseEquals()->Simplify();
+        return ParseEquals();
     }
 
     std::shared_ptr<AstNode> Parser::ParseEquals()
