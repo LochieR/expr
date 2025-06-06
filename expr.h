@@ -564,7 +564,7 @@ namespace expr {
 
 }
 
-#ifndef EXPR_IMPLEMENTATION
+#ifdef EXPR_IMPLEMENTATION
 
 namespace expr {
 
